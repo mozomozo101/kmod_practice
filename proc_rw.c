@@ -5,16 +5,54 @@
  * cat /proc/hello	// 読み込み
  */
 
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/proc_fs.h>
-#include<linux/sched.h>
+#include <linux/sched.h>
 #include <asm/uaccess.h>
 #include <linux/slab.h>
+#include "../kernel/sched/sched.h"
+#include <linux/rbtree.h>
 
 int len,temp;
 
 char *msg;
+
+// ランキューの取得〜ルートノード取得
+struct rb_node *get_root(void){
+	
+	int cpu = smp_processor_id();
+	struct rq *rq = cpu_rq(cpu);
+	struct rb_node *root = (rq->cfs).tasks_timeline.rb_node;
+	return root;
+}
+
+// ノードに対応したタスク優先度取得
+void get_priority(struct rb_node *node){
+	
+	struct sched_entity *s_entity;
+	struct task_struct *task;
+
+	s_entity = rb_entry(node, struct sched_entity, run_node);	// sched_entry構造体取得
+	task = container_of(s_entity, struct task_struct, se);		// task構造体取得
+	printk( KERN_INFO "task_priority:%d", task->prio );
+}
+//
+// 二分木走査
+void rb_scan(struct rb_node *node){
+	get_priority(node);
+	rb_scan(node->rb_left);
+	rb_scan(node->rb_right);
+}
+
+
+// 処理の取りまとめ関数
+void count_process(void){
+	struct rb_node *root = get_root();
+	rb_scan(root);
+}
+
 
 int read_proc(struct file *filp,char *buf,size_t count,loff_t *offp ) 
 {
@@ -52,11 +90,11 @@ struct file_operations proc_fops = {
 void create_new_proc_entry() 
 {
 	proc_create("hello",0666,NULL,&proc_fops);
+	count_process();
 
 	// モジュール読み込みの時点で、バッファを確保しておく
 	msg=kmalloc(GFP_KERNEL,10*sizeof(char));
 }
-
 
 int proc_init (void) {
 	create_new_proc_entry();
